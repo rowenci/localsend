@@ -153,10 +153,17 @@ pub async fn discover_staged(args: &Value) -> Result<Value, String> {
         .unwrap_or(DEFAULT_PORT as u64) as u16;
     let protocol = parse_protocol(args.get("protocol").and_then(Value::as_str));
     let grace = Duration::from_millis(args.get("graceMs").and_then(Value::as_u64).unwrap_or(1000));
-    let interface_ips: Vec<Ipv4Addr> = string_array(args, "interfaceIps")
+    // 宿主不传就自己数网卡：core 有 local_interface_addresses，让 Kotlin 去摸 ConnectivityManager
+    // 只会多一套容易过期的网卡口径
+    let mut interface_ips: Vec<Ipv4Addr> = string_array(args, "interfaceIps")
         .into_iter()
         .filter_map(|text| text.parse().ok())
         .collect();
+    if interface_ips.is_empty() {
+        interface_ips =
+            localsend::util::interface::local_interface_addresses(&InterfaceFilter::default())
+                .unwrap_or_default();
+    }
     let known: Vec<HttpChannel> = object_array(args, "knownChannels")
         .iter()
         .filter_map(http_channel_of)

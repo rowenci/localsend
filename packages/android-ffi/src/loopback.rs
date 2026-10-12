@@ -65,6 +65,16 @@ async fn wait_reply(req_id: &str) -> Value {
     }
 }
 
+/// 这些测试碰的是进程级全局（IDENTITY / SERVER / DISCOVERY），并行跑会互相踩：
+/// 一个测试的 identity.load 会把另一个正在用的身份换掉。用一把锁把它们排开。
+static GLOBALS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn lock_globals() -> std::sync::MutexGuard<'static, ()> {
+    GLOBALS
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 fn temp_dir(tag: &str) -> std::path::PathBuf {
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -76,7 +86,11 @@ fn temp_dir(tag: &str) -> std::path::PathBuf {
 }
 
 #[tokio::test]
+// 测试里跨 await 持有这把 std 锁是安全的：#[tokio::test] 是单线程 runtime，
+// 两个测试只靠它排队，不会真的把 worker 线程堵死。
+#[allow(clippy::await_holding_lock)]
 async fn loopback_transfer_accept_and_decline() {
+    let _globals = lock_globals();
     // 全局槽位（SERVER/IDENTITY）是进程级的，两个场景必须顺序跑
     accept_case().await;
     decline_case().await;
@@ -246,6 +260,7 @@ async fn decline_case() {
 #[test]
 fn dispatch_survives_a_thread_without_a_runtime() {
     let dir = temp_dir("off-runtime");
+    let _globals = lock_globals();
     let payload = json!({
         "reqId": "off-1",
         "dataDir": dir.display().to_string(),
