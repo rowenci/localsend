@@ -13,8 +13,15 @@
 
 mod bridge;
 mod call;
+mod discovery;
 mod filename;
+mod identity;
+#[cfg(test)]
+mod loopback;
 mod runtime;
+mod send;
+mod server;
+mod state;
 
 use std::panic::AssertUnwindSafe;
 

@@ -14,6 +14,9 @@ crate-type = ["cdylib"]
 # (`webRTCEnabled = false`), and no other core module references it.
 localsend = { path = "../core", features = ["crypto", "discovery", "http", "multicast"] }
 anyhow = "1.0"
+futures-util = "0.3"
 jni = "0.21"
+serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1.53", features = ["full"] }
+tokio-util = "0.7.19"

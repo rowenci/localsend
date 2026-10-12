@@ -2254,10 +2254,13 @@ name = "localsend-android-ffi"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "futures-util",
  "jni 0.21.1",
  "localsend",
+ "serde",
  "serde_json",
  "tokio",
+ "tokio-util",
 ]
 
 [[package]]

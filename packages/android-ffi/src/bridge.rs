@@ -22,6 +22,11 @@ static PUMP: OnceLock<mpsc::UnboundedSender<Value>> = OnceLock::new();
 /// Sequence number carried by every event, so the host can spot a lost or reordered callback.
 static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
+/// 主机集成测试的事件副本（没有 JVM 时 `emit` 无处可送，测试靠它等事件）。
+#[cfg(test)]
+pub static TEST_EVENTS: std::sync::LazyLock<std::sync::Mutex<Vec<Value>>> =
+    std::sync::LazyLock::new(|| std::sync::Mutex::new(Vec::new()));
+
 pub(crate) fn set_sink(env: &mut JNIEnv<'_>, sink: &JObject<'_>) -> Result<(), String> {
     if sink.is_null() {
         *SINK.lock().unwrap() = None;
@@ -51,7 +56,10 @@ pub(crate) fn start_pump() {
 
 fn pump_loop(rx: &mut mpsc::UnboundedReceiver<Value>) {
     let Some(vm) = JAVA_VM.get() else {
-        eprintln!("[localsend_ffi] pump stopped: no JavaVM (set_sink was never called)");
+        // 没有 JVM（主机测试路径）：照样把通道消费干净，emit 因此永远不会因为没人收而阻塞。
+        // 真机上 set_sink 总在 runtime.init 之前，不会走到这里。
+        eprintln!("[localsend_ffi] pump has no JavaVM, draining events without delivering");
+        while rx.blocking_recv().is_some() {}
         return;
     };
     let mut attached = match vm.attach_current_thread() {
@@ -76,7 +84,9 @@ fn pump_loop(rx: &mut mpsc::UnboundedReceiver<Value>) {
             continue;
         };
         match attached.call_method(sink.as_obj(), "onEvent", "(Ljava/lang/String;)V", &args) {
-            Ok(value) => drop(value),
+            Ok(value) => {
+                let _ = value;
+            }
             Err(error) => {
                 failures += 1;
                 eprintln!("[localsend_ffi] onEvent failed: {error}");
@@ -100,11 +110,11 @@ pub(crate) fn emit(kind: &str, data: Value) {
         "seq": SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
         "data": data,
     });
-    match PUMP.get() {
-        Some(tx) => {
-            let _ = tx.send(event);
-        }
-        None => eprintln!("[localsend_ffi] {event}"),
+    // 主机测试没有 JVM，事件在这里留一份副本供测试按类型取走
+    #[cfg(test)]
+    TEST_EVENTS.lock().unwrap().push(event.clone());
+    if let Some(tx) = PUMP.get() {
+        let _ = tx.send(event);
     }
 }
 
