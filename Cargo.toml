@@ -2,6 +2,7 @@
 resolver = "3"
 members = [
     "cli",
+    "packages/android-ffi",
     "packages/core",
     "packages/localsend_isolates/rust",
     "server",
@@ -20,3 +21,15 @@ opt-level = 2
 
 [profile.dev.package.num-bigint-dig]
 opt-level = 2
+
+# Ship profile for the Android JNI library (packages/android-ffi), driven by
+# tools/build-localsend-ffi.ps1 in the OneP host. `panic` stays at the default `unwind`
+# on purpose: the crate catches panics at the JNI boundary, and `abort` would turn a bug
+# into a process kill.
+[profile.ffi]
+inherits = "release"
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+strip = "symbols"
+debug = false

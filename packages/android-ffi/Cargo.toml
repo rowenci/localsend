@@ -1,0 +1,19 @@
+[package]
+name = "localsend-android-ffi"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "JNI bridge exposing the LocalSend protocol core to a native (non-Flutter) Android host."
+
+[lib]
+name = "localsend_ffi"
+crate-type = ["cdylib"]
+
+[dependencies]
+# crypto+discovery+http+multicast is `full` minus webrtc: the app never turned WebRTC on
+# (`webRTCEnabled = false`), and no other core module references it.
+localsend = { path = "../core", features = ["crypto", "discovery", "http", "multicast"] }
+anyhow = "1.0"
+jni = "0.21"
+serde_json = "1"
+tokio = { version = "1.53", features = ["full"] }
