@@ -175,7 +175,11 @@ fn parse_target(value: Option<&Value>) -> Result<Target, String> {
         .ok_or("target is required")?;
     let host = map_string(object, "host");
     let port = object.get("port").and_then(Value::as_u64).unwrap_or(53317) as u16;
-    let protocol = match map_string(object, "protocol").as_deref() {
+    // 大小写不敏感：宿主可能把 core 的 Debug 形态（"Http"）原样传回来
+    let protocol = match map_string(object, "protocol")
+        .map(|value| value.to_ascii_lowercase())
+        .as_deref()
+    {
         Some("http") => ProtocolType::Http,
         _ => ProtocolType::Https,
     };
@@ -503,5 +507,28 @@ impl Clone for FileSpec {
             fd: self.fd,
             hash_fd: self.hash_fd,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `send.start` 的协议字段大小写不敏感：宿主可能原样回传 core 的 Debug 形态（"Http"）。
+    /// 认不出来会静默退回 HTTPS，明文对端表现为 `error sending request for url (https://…)`。
+    #[test]
+    fn target_protocol_is_case_insensitive() {
+        for text in ["http", "Http", "HTTP"] {
+            let target = parse_target(Some(&json!({
+                "host": "127.0.0.1", "port": 53317, "protocol": text,
+            })))
+            .expect("target parses");
+            assert_eq!(target.protocol, ProtocolType::Http, "{text}");
+        }
+        let https = parse_target(Some(&json!({
+            "host": "127.0.0.1", "port": 53317, "protocol": "HTTPS",
+        })))
+        .expect("target parses");
+        assert_eq!(https.protocol, ProtocolType::Https);
     }
 }

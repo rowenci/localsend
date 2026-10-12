@@ -264,10 +264,12 @@ fn stored_json(stored: &StatefulDevice) -> Value {
 
 fn channel_json(channel: &DeviceChannel) -> Value {
     match channel {
+        // 协议一律按线上约定给小写（"http"/"https"）：之前用 Debug 格式漏出 "Http"/"Https"，
+        // 宿主的解析是大小写敏感的，会静默退回 HTTPS，明文对端直接连不上
         DeviceChannel::Http(http) => json!({
             "host": http.host,
             "port": http.port,
-            "protocol": format!("{:?}", http.protocol),
+            "protocol": protocol_str(http.protocol),
         }),
     }
 }
@@ -288,6 +290,14 @@ fn last_seen_ms(stored: &StatefulDevice) -> Option<u64> {
         .last()
         .and_then(|log| log.timestamp.duration_since(UNIX_EPOCH).ok())
         .map(|since| since.as_millis() as u64)
+}
+
+/// 线上表示：小写，与 core 的 protocol_type_v2 一致
+fn protocol_str(protocol: ProtocolType) -> &'static str {
+    match protocol {
+        ProtocolType::Http => "http",
+        ProtocolType::Https => "https",
+    }
 }
 
 fn parse_protocol(value: Option<&str>) -> ProtocolType {
@@ -329,4 +339,40 @@ fn object_array(args: &Value, key: &str) -> Vec<Value> {
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 宿主拿到的通道协议必须是线上的小写形态：曾经用 `{:?}` 漏出 "Http"，
+    /// 而发送侧只认小写，于是明文对端被当成 HTTPS 连不上（M7 装机才暴露）。
+    #[test]
+    fn channel_json_uses_wire_protocol_case() {
+        let http = channel_json(&DeviceChannel::Http(HttpChannel {
+            host: "10.0.0.5".to_string(),
+            port: 53317,
+            protocol: ProtocolType::Http,
+        }));
+        assert_eq!(http["protocol"], "http");
+
+        let https = channel_json(&DeviceChannel::Http(HttpChannel {
+            host: "10.0.0.5".to_string(),
+            port: 53317,
+            protocol: ProtocolType::Https,
+        }));
+        assert_eq!(https["protocol"], "https");
+    }
+
+    /// 大小写不敏感地读回来，老宿主传 "Http"/"HTTP" 也不会跑偏
+    #[test]
+    fn parse_protocol_accepts_any_case() {
+        for text in ["http", "Http", "HTTP", "hTtP"] {
+            assert_eq!(parse_protocol(Some(text)), ProtocolType::Http, "{text}");
+        }
+        for text in ["https", "Https", "HTTPS"] {
+            assert_eq!(parse_protocol(Some(text)), ProtocolType::Https, "{text}");
+        }
+        assert_eq!(parse_protocol(None), ProtocolType::Https);
+    }
 }
